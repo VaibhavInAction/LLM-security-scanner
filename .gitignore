@@ -1,0 +1,19 @@
+# Raw downloaded datasets — regenerate with scripts/fetch_datasets.py
+# Never commit these: they're large, they're someone else's data, and some
+# licences forbid redistribution. Commit the import scripts instead.
+data/raw/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+
+# Local
+.env
+ALGORITHMS_AND_IMPACT.md
+justforme.md
+WALKTHROUGH.md
+.claude

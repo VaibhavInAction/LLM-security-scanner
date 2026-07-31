@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Runs everything under tests/, which includes:
+      #   - test_rules.py: every YAML rule's example/counter_example (PLAN.md §6.6)
+      #   - test_regex_performance.py: the ReDoS/catastrophic-backtracking
+      #     tripwire for every hand-written regex (PLAN.md §14 Phase 3.6)
+      #   - unit tests for every module
+      - name: Run tests
+        run: python -m pytest -q
+
+      # Fails on TPR dropping or the raw FP count rising -- not FPR as a
+      # rate, which would hide a regression behind corpus growth
+      # (PLAN.md §14 Phase 6.2).
+      - name: Benchmark regression gate
+        run: python -m scripts.check_regression

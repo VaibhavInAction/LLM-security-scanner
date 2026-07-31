@@ -1,0 +1,5 @@
+{
+  "tpr": 0.5,
+  "fp_count": 4,
+  "note": "Train gate TPR-at-FPR<=0.05 and raw FP count, as of PLAN.md Phase 6.2. Update by re-running scripts/check_regression.py after a deliberate, reviewed change to detection logic or the corpus -- never to silence a real regression."
+}

