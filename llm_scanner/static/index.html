@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LLM Scanner</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    textarea { width: 100%; height: 160px; padding: .5rem; box-sizing: border-box; font: inherit; }
+    button { margin-top: .5rem; padding: .5rem 1.2rem; font: inherit; cursor: pointer; }
+    #summary { margin: 1rem 0; font-size: 1.2rem; font-weight: bold; }
+    .low { color: #2a7d2a; } .medium { color: #b8860b; }
+    .high { color: #d2691e; } .critical { color: #c0392b; }
+    .finding { border: 1px solid #ccc; border-radius: 6px; padding: .6rem; margin-bottom: .6rem; }
+    .finding small { color: #666; }
+    code { background: #eee; padding: 1px 4px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <h1>LLM Scanner</h1>
+  <p>Paste text below to check it for jailbreaks, prompt injection, leaked secrets and more.</p>
+
+  <textarea id="text" placeholder="Paste text here..."></textarea>
+  <button id="scanBtn">Scan</button>
+
+  <div id="summary"></div>
+  <div id="findings"></div>
+
+  <script>
+    const textBox = document.getElementById("text");
+    const summary = document.getElementById("summary");
+    const findingsDiv = document.getElementById("findings");
+
+    document.getElementById("scanBtn").addEventListener("click", async () => {
+      summary.textContent = "Scanning...";
+      findingsDiv.innerHTML = "";
+      try {
+        const response = await fetch("/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: textBox.value }),
+        });
+        if (!response.ok) throw new Error("Server returned " + response.status);
+        show(await response.json());
+      } catch (err) {
+        summary.textContent = "Error: " + err.message;
+      }
+    });
+
+    function show(risk) {
+      summary.innerHTML = "";
+      const level = document.createElement("span");
+      level.className = risk.level;
+      level.textContent = risk.level.toUpperCase();
+      summary.append("Risk: ", level, " (score " + risk.score.toFixed(2) + ")");
+      if (risk.truncated) summary.append(" - input was truncated");
+
+      if (risk.detections.length === 0) {
+        findingsDiv.textContent = "No findings.";
+        return;
+      }
+      for (const f of risk.detections) {
+        const box = document.createElement("div");
+        box.className = "finding";
+        const title = document.createElement("div");
+        title.textContent = f.category + " - " + f.reason + " ";
+        const score = document.createElement("small");
+        score.textContent = "(score " + f.score.toFixed(2) + ")";
+        title.append(score);
+        const evidence = document.createElement("code");
+        evidence.textContent = f.evidence;
+        box.append(title, evidence);
+        findingsDiv.append(box);
+      }
+    }
+  </script>
+</body>
+</html>

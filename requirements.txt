@@ -1,3 +1,6 @@
 pydantic
 pytest
 pyyaml
+fastapi
+uvicorn
+httpx
